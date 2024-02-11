@@ -1,0 +1,60 @@
+version: 2.1
+setup: true
+parameters:
+  services:
+    type: string
+    default: integrations/applicationsSage,integrations/builderCMS,integrations/companionDevicesSage,integrations/compassSage,integrations/eagleCountyTaxes,integrations/propertiesSage,integrations/sageAnalytics,integrations/sparkMLS,platform/analyticsService,platform/appService,platform/companionDevicesService,platform/emailService,platform/infrastructure,platform/mediaService,platform/propertiesService,platform/usersService,sage/sageApiService
+commands: {}
+executors: {}
+orbs:
+  continuation: circleci/continuation@0.1.2
+  slack: circleci/slack@4.4.2
+jobs:
+  setup:
+    executor: continuation/default
+    steps:
+      - checkout:
+          path: ~/project
+      - run:
+          name: Setup Node 16.16
+          command: |
+            set +e
+            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.3/install.sh | bash
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+            echo 'export NVM_DIR="$HOME/.nvm"' >> $BASH_ENV
+            echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> $BASH_ENV
+            nvm install 16.16.0;
+            nvm use 16.16.0;
+            nvm alias default 16.16.0;
+            node -v;
+            npm install yarn@1.19.0 -g;
+      - run:
+          name: NPM Auth
+          command:
+            echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
+      - restore_cache:
+          keys:
+            - ci-setup-deps-{{ checksum ".circleci/yarn.lock" }}
+      - run:
+          name: Install Dependencies
+          command: |
+            cd .circleci
+            yarn install --pure-lockfile
+            cd ..
+      - save_cache:
+          key: ci-setup-deps-{{ checksum ".circleci/yarn.lock" }}
+          paths:
+            - .circleci/node_modules
+      - run:
+          name: Generate Config
+          command: |
+            cd .circleci
+            SERVICES=<< pipeline.parameters.services >> yarn ts-node src/index.ts
+      - continuation/continue:
+          configuration_path: .circleci/generated_config.yml
+workflows:
+  sage-ci:
+    jobs:
+      - setup
